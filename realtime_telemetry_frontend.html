@@ -1,0 +1,279 @@
+  <!DOCTYPE html>
+<html lang="zh-tw">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>即時火箭遙測儀表板 (WebSocket)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e1e; /* 深色背景 */
+            color: #e0e0e0; /* 淺色文字 */
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        header {
+            background-color: #333333;
+            color: #00aaff; /* 亮藍色標題 */
+            padding: 15px 30px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            text-align: center;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            border: 1px solid #00aaff;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.8em;
+        }
+
+        #connection-status {
+            font-size: 1em;
+            margin-bottom: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #444;
+            color: #fff;
+            width: 100%;
+            max-width: 1160px; /* 與 dashboard 同寬 */
+            text-align: center;
+        }
+        .status-connected { border: 2px solid #2ecc71; color: #2ecc71;}
+        .status-disconnected { border: 2px solid #e74c3c; color: #e74c3c;}
+        .status-connecting { border: 2px solid #f39c12; color: #f39c12;}
+
+
+        #dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px; /* 主內容區域最大寬度 */
+        }
+
+        .widget {
+            background-color: #2c2c2c; /* Widget 背景色 */
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+
+        .widget h2 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            color: #00aaff; /* Widget 標題顏色 */
+            border-bottom: 1px solid #555;
+            padding-bottom: 10px;
+        }
+
+        .widget p {
+            font-size: 1.6em; /* 數值顯示 */
+            margin: 10px 0;
+            color: #f5f5f5; /* 數值顏色 */
+            font-weight: bold;
+        }
+
+        .widget p .unit {
+            font-size: 0.6em;
+            color: #aaa;
+            margin-left: 8px;
+            font-weight: normal;
+        }
+        
+        .data-item {
+            margin-bottom: 8px;
+            font-size: 1.1em;
+        }
+        .data-item .label {
+            color: #00aaff;
+            font-weight: bold;
+        }
+        .data-item .value {
+            color: #e0e0e0;
+            margin-left: 5px;
+        }
+
+
+        #raw-data-container {
+            margin-top: 30px;
+            width: 100%;
+            max-width: 1200px;
+        }
+        #raw-data-container h2 {
+            color: #00aaff;
+        }
+        #raw-json-area {
+            background-color: #2c2c2c;
+            border: 1px solid #444;
+            padding: 15px;
+            border-radius: 5px;
+            min-height: 100px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap; /* 保持JSON格式並自動換行 */
+            word-wrap: break-word;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+            color: #c0c0c0;
+        }
+
+        footer {
+            margin-top: 30px;
+            font-size: 0.9em;
+            color: #888;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>即時火箭遙測儀表板 (WebSocket)</h1>
+    </header>
+
+    <div id="connection-status" class="status-connecting">正在連接到遙測伺服器...</div>
+
+    <main id="dashboard">
+        <div class="widget">
+            <h2>時間戳 (Timestamps)</h2>
+            <div class="data-item">
+                <span class="label">地面處理時間:</span>
+                <span class="value" id="processing-time">--</span>
+            </div>
+            <div class="data-item">
+                <span class="label">箭載時間 (s):</span>
+                <span class="value" id="source-time">--</span>
+            </div>
+        </div>
+
+        <div class="widget">
+            <h2>飛行參數</h2>
+            <div class="data-item">
+                <span class="label">火箭ID:</span>
+                <span class="value" id="rocket-id">--</span>
+            </div>
+            <p><span id="altitude-value">--</span><span class="unit" id="altitude-unit">m</span></p>
+            <p><span id="velocity-value">--</span><span class="unit" id="velocity-unit">m/s</span></p>
+        </div>
+
+        <div class="widget">
+            <h2>引擎狀態</h2>
+            <p><span id="pressure-value">--</span><span class="unit" id="pressure-unit">kPa</span></p>
+        </div>
+        
+        <div class="widget">
+            <h2>系統狀態</h2>
+            <div class="data-item">
+                <span class="label">原始狀態字:</span>
+                <span class="value" id="status-byte">--</span>
+            </div>
+            <div class="data-item">
+                <span class="label">狀態報告:</span>
+                <span class="value" id="status-report">--</span>
+            </div>
+        </div>
+    </main>
+
+    <div id="raw-data-container">
+        <h2>原始 WebSocket 數據:</h2>
+        <pre id="raw-json-area">等待數據...</pre>
+    </div>
+
+    <footer>
+        <p>此前端透過 WebSocket 連接後端獲取即時數據。&copy; 2025</p>
+    </footer>
+
+    <script>
+        const wsUri = "ws://localhost:8765"; // WebSocket 伺服器地址
+        let socket;
+
+        // DOM 元素獲取
+        const connectionStatusElem = document.getElementById('connection-status');
+        const processingTimeElem = document.getElementById('processing-time');
+        const sourceTimeElem = document.getElementById('source-time');
+        const rocketIdElem = document.getElementById('rocket-id');
+        const altitudeValueElem = document.getElementById('altitude-value');
+        const altitudeUnitElem = document.getElementById('altitude-unit');
+        const velocityValueElem = document.getElementById('velocity-value');
+        const velocityUnitElem = document.getElementById('velocity-unit');
+        const pressureValueElem = document.getElementById('pressure-value');
+        const pressureUnitElem = document.getElementById('pressure-unit');
+        const statusByteElem = document.getElementById('status-byte');
+        const statusReportElem = document.getElementById('status-report');
+        const rawJsonAreaElem = document.getElementById('raw-json-area');
+
+        function connectWebSocket() {
+            console.log(`嘗試連接到 ${wsUri}...`);
+            socket = new WebSocket(wsUri);
+
+            socket.onopen = function(event) {
+                console.log("WebSocket 連線已成功開啟。");
+                connectionStatusElem.textContent = "已連接到遙測伺服器";
+                connectionStatusElem.className = "status-connected";
+            };
+
+            socket.onmessage = function(event) {
+                rawJsonAreaElem.textContent = event.data; // 顯示原始JSON
+                try {
+                    const telemetryPackage = JSON.parse(event.data);
+                    
+                    // 更新時間戳
+                    if (telemetryPackage.processing_timestamp) {
+                        processingTimeElem.textContent = new Date(telemetryPackage.processing_timestamp).toLocaleTimeString('zh-TW', { hour12: false, timeZone: 'Asia/Taipei' });
+                    }
+                    if (telemetryPackage.source_timestamp_s !== undefined) {
+                        sourceTimeElem.textContent = telemetryPackage.source_timestamp_s;
+                    }
+
+                    // 更新主要數據
+                    if (telemetryPackage.data) {
+                        const data = telemetryPackage.data;
+                        rocketIdElem.textContent = data.rocket_id !== undefined ? data.rocket_id : '--';
+                        
+                        altitudeValueElem.textContent = data.altitude_m !== undefined ? data.altitude_m.toFixed(1) : '--';
+                        altitudeUnitElem.textContent = data.altitude_unit || 'm';
+                        
+                        velocityValueElem.textContent = data.velocity_mps !== undefined ? data.velocity_mps.toFixed(1) : '--';
+                        velocityUnitElem.textContent = data.velocity_unit || 'm/s';
+
+                        pressureValueElem.textContent = data.engine_pressure_kPa !== undefined ? data.engine_pressure_kPa.toFixed(1) : '--';
+                        pressureUnitElem.textContent = data.engine_pressure_unit || 'kPa';
+                        
+                        statusByteElem.textContent = data.status_byte !== undefined ? '0x' + data.status_byte.toString(16).toUpperCase() : '--';
+                        statusReportElem.textContent = data.status_report || '--';
+                    }
+
+                } catch (e) {
+                    console.error("處理收到的訊息時發生錯誤:", e);
+                    rawJsonAreaElem.textContent = "錯誤的JSON格式或處理錯誤: " + event.data + "\nError: " + e.message;
+                }
+            };
+
+            socket.onclose = function(event) {
+                console.log(`WebSocket 連線已關閉。 Code: ${event.code}, Reason: '${event.reason}', WasClean: ${event.wasClean}`);
+                connectionStatusElem.textContent = `已斷線 (Code: ${event.code}) - 5秒後嘗試重新連接...`;
+                connectionStatusElem.className = "status-disconnected";
+                // 嘗試重新連接
+                setTimeout(connectWebSocket, 5000);
+            };
+
+            socket.onerror = function(event) {
+                console.error("WebSocket 錯誤發生: ", event);
+                connectionStatusElem.textContent = "連接錯誤";
+                connectionStatusElem.className = "status-disconnected";
+                // onerror 通常也會觸發 onclose，所以重連邏輯主要放在 onclose 中
+            };
+        }
+
+        // 初始連接
+        connectWebSocket();
+
+    </script>
+</body>
+</html>
